@@ -1,44 +1,68 @@
-import mongoose from 'mongoose';
 
-interface ConnectionObject {
-  isConnected?: number;
+import mongoose, { Mongoose } from "mongoose";
+
+interface MongooseConnection {
+  conn: Mongoose | null;
+  promise: Promise<Mongoose> | null;
 }
 
-const connection: ConnectionObject = {};
+const globalWithMongoose = global as typeof globalThis & {
+  mongoose: MongooseConnection;
+};
 
-async function connectDB(): Promise<void> {
-  // Check if already connected
-  if (connection.isConnected) {
-    console.log('✅ Already connected to MongoDB');
-    return;
+let cached = globalWithMongoose.mongoose;
+
+if (!cached) {
+  cached = globalWithMongoose.mongoose = {
+    conn: null,
+    promise: null,
+  };
+}
+
+async function connectDB(): Promise<Mongoose> {
+ 
+  if (cached.conn) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const MONGODB_URI = process.env.MONGODB_URI;
+    const DB_NAME = process.env.MONGODB_DB_NAME || "chat-gpt";
+
+    if (!MONGODB_URI) {
+      throw new Error("❌ MONGODB_URI is not defined in .env");
+    }
+
+    cached.promise = mongoose.connect(MONGODB_URI, {
+      dbName: DB_NAME,
+      bufferCommands: false,
+      connectTimeoutMS: 30000,
+    });
   }
 
   try {
-    // Connect to MongoDB
-    const db = await mongoose.connect(process.env.MONGODB_URI!, {
-      dbName: process.env.MONGODB_DB_NAME || 'chatgpt_clone',
-    });
+    cached.conn = await cached.promise;
 
-    connection.isConnected = db.connections[0].readyState;
+    // Log once in dev
+    if (process.env.NODE_ENV !== "production") {
+      mongoose.connection.on("connected", () => {
+        console.log("🔗 Mongoose connected to MongoDB");
+      });
 
-    console.log('✅ Connected to MongoDB successfully');
+      mongoose.connection.on("error", (err) => {
+        console.error("❌ Mongoose connection error:", err);
+      });
 
-    // Handle connection events
-    mongoose.connection.on('connected', () => {
-      console.log('🔗 Mongoose connected to MongoDB');
-    });
+      mongoose.connection.on("disconnected", () => {
+        console.log("🔌 Mongoose disconnected");
+      });
+    }
 
-    mongoose.connection.on('error', (err) => {
-      console.error('❌ Mongoose connection error:', err);
-    });
-
-    mongoose.connection.on('disconnected', () => {
-      console.log('🔌 Mongoose disconnected from MongoDB');
-    });
-
+    console.log("✅ MongoDB connected");
+    return cached.conn;
   } catch (error) {
-    console.error('❌ Database connection failed:', error);
-    process.exit(1);
+    console.error("❌ MongoDB connection failed:", error);
+    throw error;
   }
 }
 
