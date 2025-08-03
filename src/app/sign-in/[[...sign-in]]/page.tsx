@@ -32,6 +32,7 @@ export default function Page() {
               },
             }}
             routing="hash"
+            fallbackRedirectUrl="/upload"
             signUpUrl="/sign-up"
           />
         </div>
